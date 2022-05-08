@@ -1,4 +1,7 @@
 from __future__ import annotations
+
+import math
+
 import numpy as np
 from numpy.linalg import inv, det, slogdet
 
@@ -7,6 +10,7 @@ class UnivariateGaussian:
     """
     Class for univariate Gaussian Distribution Estimator
     """
+
     def __init__(self, biased_var: bool = False) -> UnivariateGaussian:
         """
         Estimator for univariate Gaussian mean and variance parameters
@@ -51,8 +55,11 @@ class UnivariateGaussian:
         Sets `self.mu_`, `self.var_` attributes according to calculated estimation (where
         estimator is either biased or unbiased). Then sets `self.fitted_` attribute to `True`
         """
-        raise NotImplementedError()
-
+        self.mu_ = X.mean()
+        if self.biased_:
+            self.var_ = X.var(ddof=0)
+        else:
+            self.var_ = X.var(ddof=1)
         self.fitted_ = True
         return self
 
@@ -75,8 +82,11 @@ class UnivariateGaussian:
         ValueError: In case function was called prior fitting the model
         """
         if not self.fitted_:
-            raise ValueError("Estimator must first be fitted before calling `pdf` function")
-        raise NotImplementedError()
+            raise ValueError(
+                "Estimator must first be fitted before calling `pdf` function")
+        denominator = math.pow(self.var_ * 2 * math.pi, 0.5)
+        numerator = np.exp(-(X - self.mu_) ** 2 / 2 * self.var_)
+        return numerator / denominator
 
     @staticmethod
     def log_likelihood(mu: float, sigma: float, X: np.ndarray) -> float:
@@ -97,13 +107,18 @@ class UnivariateGaussian:
         log_likelihood: float
             log-likelihood calculated
         """
-        raise NotImplementedError()
+        rows_dim = X.shape[0]
+        coefficient = np.log(
+            1 / math.pow(np.sqrt(2 * sigma * math.pi), rows_dim))
+        logged_exp = np.sum(-((X - mu)**2) / 2 * sigma)
+        return coefficient + logged_exp
 
 
 class MultivariateGaussian:
     """
     Class for multivariate Gaussian Distribution Estimator
     """
+
     def __init__(self):
         """
         Initialize an instance of multivariate Gaussian estimator
@@ -143,8 +158,8 @@ class MultivariateGaussian:
         Sets `self.mu_`, `self.cov_` attributes according to calculated estimation.
         Then sets `self.fitted_` attribute to `True`
         """
-        raise NotImplementedError()
-
+        self.mu_ = np.mean(X, axis=0)
+        self.cov_ = np.cov(X.transpose())
         self.fitted_ = True
         return self
 
@@ -167,11 +182,23 @@ class MultivariateGaussian:
         ValueError: In case function was called prior fitting the model
         """
         if not self.fitted_:
-            raise ValueError("Estimator must first be fitted before calling `pdf` function")
-        raise NotImplementedError()
+            raise ValueError(
+                "Estimator must first be fitted before calling `pdf` function")
+        d_dim = X.shape[1]
+        X_mu_trans = np.transpose(X - self.mu_)
+        coefficient = 1 / np.sqrt(np.power(2 * np.pi, d_dim) * det(self.cov_))
+        exponent = np.exp(-0.5 * X_mu_trans @ inv(self.cov_) @ (X - self.mu_))
+        return coefficient * exponent
 
     @staticmethod
-    def log_likelihood(mu: np.ndarray, cov: np.ndarray, X: np.ndarray) -> float:
+    def mahalanobis_distance(X1: np.ndarray, X2: np.ndarray,
+                             inv_cov: np.ndarray) -> np.ndarray:
+        s1 = X1 @ inv_cov
+        return np.einsum('ij,ji->i', s1, np.transpose(X2))
+
+    @staticmethod
+    def log_likelihood(mu: np.ndarray, cov: np.ndarray,
+                       X: np.ndarray) -> float:
         """
         Calculate the log-likelihood of the data under a specified Gaussian model
 
@@ -189,4 +216,12 @@ class MultivariateGaussian:
         log_likelihood: float
             log-likelihood calculated over all input data and under given parameters of Gaussian
         """
-        raise NotImplementedError()
+        d_dim = X.shape[0]
+        m_dim = X.shape[1]
+        slogdet_cov = slogdet(cov)[1]
+        coefficient = (-m_dim / 2) * (d_dim * np.log(2 * np.pi) + slogdet_cov)
+        X_mu = (X - mu)
+        logged_exp = -0.5 * np.sum(
+            MultivariateGaussian.mahalanobis_distance(X_mu, X_mu, inv(cov)),
+            axis=0)
+        return coefficient + logged_exp

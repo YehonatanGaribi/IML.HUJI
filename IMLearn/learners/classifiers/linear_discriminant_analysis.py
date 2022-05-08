@@ -1,5 +1,6 @@
 from typing import NoReturn
 from ...base import BaseEstimator
+from ...metrics import misclassification_error
 import numpy as np
 from numpy.linalg import det, inv
 
@@ -46,7 +47,20 @@ class LDA(BaseEstimator):
         y : ndarray of shape (n_samples, )
             Responses of input data to fit to
         """
-        raise NotImplementedError()
+        samples_dim = y.shape[0]
+        self.classes_, N_k = np.unique(y, return_counts=True)
+        self.pi_ = N_k / samples_dim
+        means = np.ndarray(shape=(self.classes_.shape[0], X.shape[1]))
+        cov_matrix = np.zeros((X.shape[1], X.shape[1]))
+        for ind, k in enumerate(self.classes_):
+            x_count = X[y==k]
+            means[ind] = np.mean(x_count)
+            x_dist_mu = x_count - means[ind]
+            cov_matrix += x_dist_mu.T @ x_dist_mu
+        self.mu_ = means
+        self.cov_ = cov_matrix / (samples_dim-1)
+        self._cov_inv = inv(self.cov_)
+
 
     def _predict(self, X: np.ndarray) -> np.ndarray:
         """
@@ -62,7 +76,8 @@ class LDA(BaseEstimator):
         responses : ndarray of shape (n_samples, )
             Predicted responses of given samples
         """
-        raise NotImplementedError()
+        maximized = np.argmax(self.likelihood(X), axis=1)
+        return self.classes_[maximized]
 
     def likelihood(self, X: np.ndarray) -> np.ndarray:
         """
@@ -82,7 +97,11 @@ class LDA(BaseEstimator):
         if not self.fitted_:
             raise ValueError("Estimator must first be fitted before calling `likelihood` function")
 
-        raise NotImplementedError()
+        N_k, features_num = self.classes_.shape[0], X.shape[1]
+        x_count = np.repeat(X[:, :, np.newaxis], N_k, axis=2)
+        a = np.einsum('ijk,jk->ik', x_count, self._cov_inv @ self.mu_.T)
+        b = np.einsum('ij,ji->i', self.mu_ @ self._cov_inv, self.mu_.T)
+        return np.log(self.pi_) + a - (0.5 * b)
 
     def _loss(self, X: np.ndarray, y: np.ndarray) -> float:
         """
@@ -101,5 +120,4 @@ class LDA(BaseEstimator):
         loss : float
             Performance under missclassification loss function
         """
-        from ...metrics import misclassification_error
-        raise NotImplementedError()
+        return misclassification_error(y, self._predict(X))
